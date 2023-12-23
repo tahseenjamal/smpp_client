@@ -164,8 +164,5 @@ func newSubmitSM() *pdu.SubmitSM {
 	submitSM.ReplaceIfPresentFlag = 0
 	submitSM.EsmClass = 0
 
-	fmt.Println("Just after submitting")
-	fmt.Println(submitSM.CommandStatus)
-
 	return submitSM
 }
