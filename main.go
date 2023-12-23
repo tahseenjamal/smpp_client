@@ -29,7 +29,7 @@ var (
 
 func init() {
 
-	pattern := `id:(\w+) sub:(\d+) dlvrd:(\d+) submit date:(\d+) done date:(\d+) stat:(\w+) err:(\d+) text:(.+)`
+	pattern := `id:(\w+) sub:(\d+) dlvrd:(\d+) submit date:(\d+) done date:(\d+) stat:(\w+) err:(\d+) [Tt]ext:(.+)`
 
 	re = regexp.MustCompile(pattern)
 }
@@ -41,7 +41,7 @@ func extract(message string) (map[string]string, error) {
 	var resultMap = make(map[string]string)
 
 	if len(matches) > 0 {
-		keys := []string{"id", "sub", "dlvrd", "submit_date", "done_date", "stat", "err", "text"}
+		keys := []string{"id", "sub", "dlvrd", "submit_date", "done_date", "stat", "err", "text", "Text"}
 
 		for i, key := range keys {
 			resultMap[key] = matches[i+1]
