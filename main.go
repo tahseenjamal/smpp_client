@@ -67,7 +67,7 @@ func extract(message string) (map[string]string, error) {
 	var resultMap = make(map[string]string)
 
 	if len(matches) > 0 {
-		keys := []string{"id", "sub", "dlvrd", "submit_date", "done_date", "stat", "err", "text", "Text"}
+		keys := []string{"id", "sub", "dlvrd", "submit_date", "done_date", "stat", "err", "text"}
 
 		for i, key := range keys {
 			resultMap[key] = matches[i+1]
@@ -136,7 +136,7 @@ func sendingAndReceiveSMS(wg *sync.WaitGroup, smppConfig SMPPConfig) {
 
 	c := make(chan []*pdu.SubmitSM, 1)
 
-	messageConfig := MessageConfig{0, 0, "Zoro", 1, 1, "123456789", "Hello World, sender and receiver data is fake", 0, 0}
+	messageConfig := MessageConfig{0, 0, "Zoro", 1, 1, "447712345678", "Hello", 0, 0}
 
 	submitSM := newSubmitSM(messageConfig)
 
@@ -144,10 +144,16 @@ func sendingAndReceiveSMS(wg *sync.WaitGroup, smppConfig SMPPConfig) {
 	if submitSM.ShouldSplit() {
 
 		// Array of SubmitSMs using Split() call
-		submitSMs, err := submitSM.Split()
-		fmt.Println(err)
+		submitSMs, _ := submitSM.Split()
+		fmt.Println(submitSMs)
+		for _, p := range submitSMs {
+			fmt.Println(p.SequenceNumber)
+		}
+
 		c <- submitSMs
+
 	} else {
+		fmt.Println(submitSM.SequenceNumber)
 		c <- []*pdu.SubmitSM{submitSM}
 	}
 
@@ -168,7 +174,7 @@ func handlePDU() func(pdu.PDU, bool) {
 	return func(p pdu.PDU, _ bool) {
 		switch pd := p.(type) {
 		case *pdu.SubmitSMResp:
-			fmt.Printf("SubmitSMResp: %+v\n", pd)
+			fmt.Printf("SubmitSMResp: %+v, %+v\n", pd.SequenceNumber, pd.MessageID)
 
 		case *pdu.GenericNack:
 			fmt.Println("GenericNack Received")
@@ -180,11 +186,12 @@ func handlePDU() func(pdu.PDU, bool) {
 			fmt.Printf("DataSM:%+v\n", pd)
 
 		case *pdu.DeliverSM:
-			fmt.Println("Printing PDU...", pd)
+			//fmt.Println("Printing PDU...", pd)
 			message, _ := pd.Message.GetMessage()
+			//fmt.Println("DLR", message)
 			//fmt.Println(pd.OptionalParameters)
 			m, _ := extract(message)
-			fmt.Println(m["stat"])
+			fmt.Println("DLR", m["stat"])
 		}
 	}
 }
@@ -204,6 +211,7 @@ func newSubmitSM(messageConfig MessageConfig) *pdu.SubmitSM {
 	_ = destAddr.SetAddress(messageConfig.destAddr)
 
 	submitSM := pdu.NewSubmitSM().(*pdu.SubmitSM)
+	fmt.Println("SequenceNumber", submitSM.SequenceNumber)
 	submitSM.SourceAddr = srcAddr
 	submitSM.DestAddr = destAddr
 	_ = submitSM.Message.SetMessageWithEncoding(messageConfig.message, data.UCS2)
