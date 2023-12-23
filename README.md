@@ -1,3 +1,5 @@
+This is a quick program for smpp client but not for production use. The production sms gateway would be much more complex taking care of more complex error and diversified use cases
+
 With just main.go run below command
 
     go mod init 
