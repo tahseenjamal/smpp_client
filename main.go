@@ -27,11 +27,37 @@ var (
 	re *regexp.Regexp
 )
 
+type SMPPConfig struct {
+	host               string
+	systemID           string
+	password           string
+	systemType         string
+	enquirelink        time.Duration
+	enquireLinkTimeout time.Duration
+	ReadTimeout        time.Duration
+}
+
+type MessageConfig struct {
+	sourceTON  byte
+	sourceNPI  byte
+	sourceAddr string
+	destTON    byte
+	destNPI    byte
+	destAddr   string
+	message    string
+	esmclass   int
+	encoding   int
+}
+
+var smppConfig SMPPConfig
+
 func init() {
 
 	pattern := `id:(\w+) sub:(\d+) dlvrd:(\d+) submit date:(\d+) done date:(\d+) stat:(\w+) err:(\d+) [Tt]ext:(.+)`
 
 	re = regexp.MustCompile(pattern)
+
+	smppConfig = SMPPConfig{"localhost:2775", "admin", "admin", "", 15 * time.Second, 10 * time.Second, 30 * time.Second}
 }
 
 func extract(message string) (map[string]string, error) {
@@ -58,28 +84,29 @@ func main() {
 	var wg sync.WaitGroup
 
 	wg.Add(1)
-	go sendingAndReceiveSMS(&wg)
+
+	go sendingAndReceiveSMS(&wg, smppConfig)
 
 	wg.Wait()
 }
 
-func sendingAndReceiveSMS(wg *sync.WaitGroup) {
+func sendingAndReceiveSMS(wg *sync.WaitGroup, smppConfig SMPPConfig) {
 	defer wg.Done()
 
 	auth := gosmpp.Auth{
-		SMSC:       "smscsim.smpp.org:2775",
-		SystemID:   "SYSTEMID",
-		Password:   "PASSWORD",
-		SystemType: "",
+		SMSC:       smppConfig.host,
+		SystemID:   smppConfig.systemID,
+		Password:   smppConfig.password,
+		SystemType: smppConfig.systemType,
 	}
 
 	trans, err := gosmpp.NewSession(
 		gosmpp.TRXConnector(gosmpp.NonTLSDialer, auth),
 		//gosmpp.TRXConnector(TLSDialer, auth),
 		gosmpp.Settings{
-			EnquireLink: 5 * time.Second,
+			EnquireLink: smppConfig.enquirelink,
 
-			ReadTimeout: 10 * time.Second,
+			ReadTimeout: smppConfig.ReadTimeout,
 
 			OnSubmitError: func(_ pdu.PDU, err error) {
 				log.Fatal("SubmitPDU error:", err)
@@ -99,6 +126,7 @@ func sendingAndReceiveSMS(wg *sync.WaitGroup) {
 				fmt.Println(state)
 			},
 		}, 5*time.Second)
+
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -106,22 +134,41 @@ func sendingAndReceiveSMS(wg *sync.WaitGroup) {
 		_ = trans.Close()
 	}()
 
-	// sending SMS(s)
-	for i := 0; i < 1; i++ {
-		if err = trans.Transceiver().Submit(newSubmitSM()); err != nil {
+	c := make(chan []*pdu.SubmitSM, 1)
+
+	messageConfig := MessageConfig{0, 0, "Zoro", 1, 1, "123456789", "Hello World, sender and receiver data is fake", 0, 0}
+
+	submitSM := newSubmitSM(messageConfig)
+
+	// Split message if it's too long
+	if submitSM.ShouldSplit() {
+
+		// Array of SubmitSMs using Split() call
+		submitSMs, err := submitSM.Split()
+		fmt.Println(err)
+		c <- submitSMs
+	} else {
+		c <- []*pdu.SubmitSM{submitSM}
+	}
+
+	for _, p := range <-c {
+		if err = trans.Transceiver().Submit(p); err != nil {
 			fmt.Println(err)
 		}
-		time.Sleep(5 * time.Second)
 	}
+
+	// Wait infinitely as we have receive handler
+	// for delivery receipt
+	select {}
+
 }
 
 func handlePDU() func(pdu.PDU, bool) {
-	//concatenated := map[uint8][]string{}
+
 	return func(p pdu.PDU, _ bool) {
 		switch pd := p.(type) {
 		case *pdu.SubmitSMResp:
-			fmt.Printf("SubmitSMResp:%+v\n", pd.MessageID)
-			fmt.Println(pd.CommandStatus)
+			fmt.Printf("SubmitSMResp: %+v\n", pd)
 
 		case *pdu.GenericNack:
 			fmt.Println("GenericNack Received")
@@ -133,32 +180,33 @@ func handlePDU() func(pdu.PDU, bool) {
 			fmt.Printf("DataSM:%+v\n", pd)
 
 		case *pdu.DeliverSM:
-			fmt.Println("Printing PDU...")
+			fmt.Println("Printing PDU...", pd)
 			message, _ := pd.Message.GetMessage()
-			fmt.Println("Print tag parameters")
-			fmt.Println(pd.OptionalParameters)
+			//fmt.Println(pd.OptionalParameters)
 			m, _ := extract(message)
 			fmt.Println(m["stat"])
 		}
 	}
 }
 
-func newSubmitSM() *pdu.SubmitSM {
+func newSubmitSM(messageConfig MessageConfig) *pdu.SubmitSM {
+
 	// build up submitSM
+
 	srcAddr := pdu.NewAddress()
-	srcAddr.SetTon(5)
-	srcAddr.SetNpi(0)
-	_ = srcAddr.SetAddress("MelroseLabs")
+	srcAddr.SetTon(messageConfig.sourceTON)
+	srcAddr.SetNpi(messageConfig.sourceNPI)
+	_ = srcAddr.SetAddress(messageConfig.sourceAddr)
 
 	destAddr := pdu.NewAddress()
-	destAddr.SetTon(1)
-	destAddr.SetNpi(1)
-	_ = destAddr.SetAddress("447712345678")
+	destAddr.SetTon(messageConfig.destTON)
+	destAddr.SetNpi(messageConfig.destNPI)
+	_ = destAddr.SetAddress(messageConfig.destAddr)
 
 	submitSM := pdu.NewSubmitSM().(*pdu.SubmitSM)
 	submitSM.SourceAddr = srcAddr
 	submitSM.DestAddr = destAddr
-	_ = submitSM.Message.SetMessageWithEncoding("Hello World ", data.UCS2)
+	_ = submitSM.Message.SetMessageWithEncoding(messageConfig.message, data.UCS2)
 	submitSM.ProtocolID = 0
 	submitSM.RegisteredDelivery = 1
 	submitSM.ReplaceIfPresentFlag = 0
