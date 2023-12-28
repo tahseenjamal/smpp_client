@@ -136,7 +136,7 @@ func sendingAndReceiveSMS(wg *sync.WaitGroup, smppConfig SMPPConfig) {
 
 	c := make(chan []*pdu.SubmitSM, 1)
 
-	messageConfig := MessageConfig{0, 0, "Zoro", 1, 1, "447712345678", "Hello", 0, 0}
+	messageConfig := MessageConfig{0, 0, "Zoro", 1, 1, "343434343434", "Hello", 0, 0}
 
 	submitSM := newSubmitSM(messageConfig)
 
